@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -7,230 +6,158 @@ import {
   Polyline,
   useMap,
 } from "react-leaflet";
-
 import L from "leaflet";
+import { useEffect } from "react";
 import "leaflet/dist/leaflet.css";
 
-const markerIcon = new L.Icon({
-  iconUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+delete L.Icon.Default.prototype._getIconUrl;
+
+L.Icon.Default.mergeOptions({
   iconRetinaUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
+    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconUrl:
+    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
   shadowUrl:
-    "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41],
+    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
-const MUMBAI_COORDINATES = {
-  "Gateway of India": [18.921984, 72.834654],
-  "Marine Drive": [18.943131, 72.823463],
-  CSMT: [18.94017, 72.83559],
-  "Sanjay Gandhi National Park": [19.214706, 72.91062],
-  "Elephanta Caves": [18.963347, 72.931591],
-  "Juhu Beach": [19.0883, 72.8265],
-  "Bandra Fort": [19.0437, 72.8198],
-  "Crawford Market": [18.9478, 72.83],
-  "Colaba Causeway": [18.9227, 72.8317],
-  "Siddhivinayak Temple": [19.0169, 72.8306],
-};
-
-const GOA_COORDINATES = {
-  "Baga Beach": [15.5557, 73.7517],
-  "Calangute Beach": [15.5439, 73.7553],
-  "Fort Aguada": [15.492, 73.7736],
-  "Basilica of Bom Jesus": [15.5009, 73.9117],
-  "Dudhsagar Falls": [15.3144, 74.3148],
-  "Anjuna Beach": [15.5736, 73.7405],
-  "Chapora Fort": [15.6133, 73.7396],
-  "Palolem Beach": [15.01, 74.0232],
-};
-
-function MapAutoFit({ positions }) {
+function FitBounds({ locations }) {
   const map = useMap();
 
   useEffect(() => {
-    if (!positions.length) return;
+    if (!locations.length) return;
 
-    if (positions.length === 1) {
-      map.setView(positions[0], 13);
-      return;
-    }
-
-    const bounds = L.latLngBounds(positions);
+    const bounds = L.latLngBounds(
+      locations.map((place) => [place.lat, place.lon])
+    );
 
     map.fitBounds(bounds, {
       padding: [40, 40],
     });
-  }, [map, positions]);
+  }, [locations, map]);
 
   return null;
 }
 
 function MapView({ trip, selectedDay }) {
-  const days = trip?.itinerary?.days || [];
+  // Support both frontend and backend formats
+  const allDays = trip?.itinerary || trip?.days || [];
 
-  const selectedDayData =
-    days.find(
-      (day) => day.day_number === selectedDay
-    ) || days[0];
-
-  const activities =
-    selectedDayData?.activities || [];
-
-  const destination =
-    trip?.destination?.toLowerCase() || "";
-
-  const coordinates = destination.includes("goa")
-    ? GOA_COORDINATES
-    : MUMBAI_COORDINATES;
-
-  const mappedActivities = activities
-    .map((activity) => {
-      const coords = coordinates[activity.name];
-
-      if (!coords) return null;
-
-      return {
-        ...activity,
-        coords,
-      };
-    })
-    .filter(Boolean);
-
-  const positions = mappedActivities.map(
-    (activity) => activity.coords
+  const day = allDays.find(
+    (item) =>
+      item.day_number === selectedDay ||
+      item.day === selectedDay
   );
 
+  const activities = day?.activities || [];
+
+  // Accept lat/lon or latitude/longitude
+  const locations = activities
+    .map((activity) => ({
+      ...activity,
+      lat: Number(activity.lat ?? activity.latitude),
+      lon: Number(
+        activity.lon ??
+        activity.lng ??
+        activity.longitude
+      ),
+    }))
+    .filter(
+      (activity) =>
+        Number.isFinite(activity.lat) &&
+        Number.isFinite(activity.lon)
+    );
+
+  if (!locations.length) {
+    return (
+      <div className="h-full min-h-[500px] flex items-center justify-center bg-slate-100">
+        <div className="text-center">
+          <div className="text-5xl mb-4">🗺️</div>
+
+          <h3 className="text-lg font-semibold text-slate-700">
+            Map unavailable
+          </h3>
+
+          <p className="text-sm text-slate-500 mt-2">
+            Activity coordinates are missing.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const center = [
+    locations[0].lat,
+    locations[0].lon,
+  ];
+
+  const route = locations.map((place) => [
+    place.lat,
+    place.lon,
+  ]);
+
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-5 border-b border-slate-200">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs text-blue-600 font-semibold uppercase tracking-wide">
-              Live Trip Map
-            </p>
+    <div className="h-[500px] w-full">
+      <MapContainer
+        center={center}
+        zoom={11}
+        scrollWheelZoom={true}
+        className="h-full w-full"
+      >
+        <TileLayer
+          attribution="&copy; OpenStreetMap contributors"
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
 
-            <h2 className="text-xl font-bold text-slate-900 mt-1">
-              Day {selectedDayData?.day_number || 1} Route
-            </h2>
+        <FitBounds locations={locations} />
 
-            <p className="text-sm text-slate-500 mt-1">
-              Showing activities and estimated travel for this day.
-            </p>
-          </div>
-
-          <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-600" />
-            {mappedActivities.length} stops
-          </div>
-        </div>
-      </div>
-
-      <div className="h-[420px] w-full">
-        {mappedActivities.length === 0 ? (
-          <div className="h-full flex items-center justify-center bg-slate-50">
-            <div className="text-center">
-              <div className="text-4xl mb-3">
-                🗺️
-              </div>
-
-              <h3 className="font-semibold text-slate-800">
-                No mapped activities
-              </h3>
-
-              <p className="text-sm text-slate-500 mt-1">
-                There are no activities with map coordinates
-                for this day.
-              </p>
-            </div>
-          </div>
-        ) : (
-          <MapContainer
-            center={positions[0]}
-            zoom={12}
-            scrollWheelZoom={true}
-            className="h-full w-full"
-          >
-            <TileLayer
-              attribution="&copy; OpenStreetMap contributors"
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-
-            <MapAutoFit positions={positions} />
-
-            {positions.length > 1 && (
-              <Polyline
-                positions={positions}
-                pathOptions={{
-                  color: "#2563eb",
-                  weight: 5,
-                  opacity: 0.8,
-                }}
-              />
-            )}
-
-            {mappedActivities.map(
-              (activity, index) => (
-                <Marker
-                  key={`${activity.place_id}-${index}`}
-                  position={activity.coords}
-                  icon={markerIcon}
-                >
-                  <Popup>
-                    <div className="min-w-[180px]">
-                      <p className="text-xs font-semibold text-blue-600 uppercase">
-                        Stop {index + 1}
-                      </p>
-
-                      <h3 className="font-bold text-slate-900 mt-1">
-                        {activity.name}
-                      </h3>
-
-                      <p className="text-sm text-slate-500 mt-1">
-                        {activity.location}
-                      </p>
-
-                      <div className="mt-2 text-xs text-slate-600">
-                        <div>
-                          🕐 {activity.start_time} –{" "}
-                          {activity.end_time}
-                        </div>
-
-                        <div className="mt-1">
-                          💰{" "}
-                          {activity.cost === 0
-                            ? "Free"
-                            : `₹${activity.cost}`}
-                        </div>
-                      </div>
-                    </div>
-                  </Popup>
-                </Marker>
-              )
-            )}
-          </MapContainer>
+        {route.length > 1 && (
+          <Polyline
+            positions={route}
+            pathOptions={{
+              color: "#2563eb",
+              weight: 5,
+              opacity: 0.75,
+            }}
+          />
         )}
-      </div>
 
-      {mappedActivities.length > 0 && (
-        <div className="p-4 bg-slate-50 border-t border-slate-200">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm text-slate-600">
-              <span className="w-3 h-3 rounded-full bg-blue-600" />
-              TravelPilot route
-            </div>
+        {locations.map((activity, index) => (
+          <Marker
+            key={`${activity.name}-${index}`}
+            position={[
+              activity.lat,
+              activity.lon,
+            ]}
+          >
+            <Popup>
+              <div>
+                <strong>{activity.name}</strong>
 
-            <div className="text-sm text-slate-500">
-              {selectedDayData?.total_travel_distance_km || 0} km
-              {" • "}
-              {selectedDayData?.total_travel_time_minutes || 0} min travel
-            </div>
-          </div>
-        </div>
-      )}
+                {activity.category && (
+                  <div>
+                    {activity.category}
+                  </div>
+                )}
+
+                {activity.start_time &&
+                  activity.end_time && (
+                    <div>
+                      🕐 {activity.start_time} -{" "}
+                      {activity.end_time}
+                    </div>
+                  )}
+
+                {activity.cost !== undefined && (
+                  <div>
+                    💰 ₹{activity.cost}
+                  </div>
+                )}
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+      </MapContainer>
     </div>
   );
 }

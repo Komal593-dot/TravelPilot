@@ -1,301 +1,325 @@
-import { useState } from "react";
-import {
-  Bot,
-  Send,
-  Sparkles,
-  User,
-} from "lucide-react";
+import { useMemo, useState } from "react";
+import { Bot, Send } from "lucide-react";
 
-function AIAssistant({ trip }) {
-  const [question, setQuestion] = useState("");
+function AIAssistant({ trip, selectedDay = 1 }) {
+  const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(false);
 
-  const activities = trip?.itinerary?.activities || [];
+  // Support both demo formats
+  const days = trip?.itinerary || trip?.days || [];
 
-  const generateAnswer = (text) => {
-    const query = text.toLowerCase();
+  const getDayNumber = (day, index) =>
+    day?.day_number || day?.day || index + 1;
 
-    if (
-      query.includes("tomorrow") ||
-      query.includes("morning")
-    ) {
-      const morningActivities = activities.filter((activity) => {
-        const hour = Number(activity.start_time.split(":")[0]);
-        return hour < 12;
-      });
+  const currentDay =
+    days.find(
+      (day, index) =>
+        getDayNumber(day, index) === selectedDay
+    ) || days[0];
 
-      if (morningActivities.length > 0) {
-        return `For tomorrow morning, I recommend starting with ${morningActivities[0].name} at ${morningActivities[0].start_time}. Your current itinerary has ${morningActivities.length} morning activities planned.`;
-      }
+  const currentActivities =
+    currentDay?.activities || [];
 
-      return "I don't currently have a morning activity scheduled. I can help you add one based on your interests and available time.";
-    }
+  const tomorrow =
+    days.find(
+      (day, index) =>
+        getDayNumber(day, index) ===
+        Number(selectedDay) + 1
+    ) || null;
 
-    if (
-      query.includes("near") ||
-      query.includes("hotel")
-    ) {
-      if (activities.length === 0) {
-        return "I don't have an itinerary yet. Create a trip first and I'll identify nearby activities.";
-      }
+  const tomorrowActivities =
+    tomorrow?.activities || [];
 
-      const nearby = [...activities]
-        .sort(
-          (a, b) =>
-            a.distance_from_previous_km -
-            b.distance_from_previous_km
-        )
-        .slice(0, 3);
+  const allActivities = useMemo(
+    () =>
+      days.flatMap(
+        (day) => day?.activities || []
+      ),
+    [days]
+  );
 
-      return `Based on your current itinerary, some of the closest stops are ${nearby
-        .map((activity) => activity.name)
-        .join(", ")}. I can use your hotel location for a more precise nearby search once hotel details are added.`;
-    }
+  function findMorningActivity(activities) {
+    return activities.find((activity) => {
+      const start =
+        activity.start_time ||
+        activity.start ||
+        "";
 
-    if (
-      query.includes("fit") ||
-      query.includes("another activity") ||
-      query.includes("add")
-    ) {
-      if (activities.length === 0) {
-        return "Create a trip first and I'll check your schedule for available time.";
-      }
+      const hour = Number(
+        String(start).split(":")[0]
+      );
 
-      const lastActivity =
-        activities[activities.length - 1];
+      return hour >= 6 && hour < 12;
+    });
+  }
 
-      const lastEnd = lastActivity.end_time;
+  function respond(text) {
+    setMessages((prev) => [
+      ...prev,
+      {
+        type: "user",
+        text: message,
+      },
+      {
+        type: "assistant",
+        text,
+      },
+    ]);
 
-      const hour = Number(lastEnd.split(":")[0]);
-      const minute = Number(lastEnd.split(":")[1]);
+    setMessage("");
+  }
 
-      const minutesUntilEvening =
-        18 * 60 - (hour * 60 + minute);
-
-      if (minutesUntilEvening >= 60) {
-        return `Yes. Your last planned activity ends at ${lastEnd}, leaving approximately ${minutesUntilEvening} minutes before the daytime planning window closes. TravelPilot can look for another nearby activity that fits your interests and budget.`;
-      }
-
-      return `Your schedule is already fairly full. Your last planned activity ends at ${lastEnd}, so adding another full activity may create a scheduling conflict.`;
-    }
+  function handleQuickQuestion(question) {
+    const lower = question.toLowerCase();
 
     if (
-      query.includes("budget") ||
-      query.includes("cost") ||
-      query.includes("money")
+      lower.includes("tomorrow") &&
+      lower.includes("morning")
     ) {
-      const totalCost =
-        trip?.itinerary?.total_cost || 0;
-
-      const budget = Number(trip?.budget || 0);
-
-      const remaining = budget - totalCost;
-
-      return `Your current planned activity cost is ₹${totalCost.toLocaleString(
-        "en-IN"
-      )}. You have approximately ₹${remaining.toLocaleString(
-        "en-IN"
-      )} remaining from your ₹${budget.toLocaleString(
-        "en-IN"
-      )} activity budget.`;
-    }
-
-    if (
-      query.includes("itinerary") ||
-      query.includes("plan") ||
-      query.includes("today")
-    ) {
-      if (activities.length === 0) {
-        return "Your itinerary is currently empty. Create a trip and TravelPilot will generate one automatically.";
+      if (!tomorrow) {
+        respond(
+          "Your demo trip currently has no day after the selected day."
+        );
+        return;
       }
 
-      return `Your current itinerary contains ${activities.length} activities, with ${trip.itinerary.total_travel_distance_km} km of travel and approximately ${trip.itinerary.total_travel_time_minutes} minutes of travel time.`;
-    }
+      const morningActivity =
+        findMorningActivity(
+          tomorrowActivities
+        );
 
-    return `I'm tracking your ${trip?.destination || "current"} trip. I can help with your itinerary, budget, nearby activities, scheduling, and replanning. Try asking "Can I fit another activity?"`;
-  };
+      if (morningActivity) {
+        const time =
+          morningActivity.start_time ||
+          morningActivity.start ||
+          "";
 
-  const askQuestion = async (text = question) => {
-    const cleanQuestion = text.trim();
+        respond(
+          `Tomorrow morning you have ${morningActivity.name}${
+            time ? ` at ${time}` : ""
+          }.`
+        );
+      } else {
+        respond(
+          "You don't currently have a morning activity scheduled for tomorrow. I can suggest one based on your interests."
+        );
+      }
 
-    if (!cleanQuestion || loading) {
       return;
     }
 
-    setLoading(true);
+    if (
+      lower.includes("near") &&
+      lower.includes("hotel")
+    ) {
+      if (!allActivities.length) {
+        respond(
+          "Create a trip first and I'll identify nearby activities."
+        );
+        return;
+      }
 
-    setMessages((current) => [
-      ...current,
-      {
-        type: "user",
-        text: cleanQuestion,
-      },
-    ]);
+      const nearby = allActivities
+        .slice(0, 3)
+        .map((activity) => activity.name)
+        .join(", ");
 
-    setQuestion("");
+      respond(
+        `For the demo trip, your scheduled activities include ${nearby}. The demo dataset doesn't contain a hotel location, so I can't calculate exact distance from your hotel yet.`
+      );
 
-    await new Promise((resolve) =>
-      setTimeout(resolve, 500)
+      return;
+    }
+
+    if (
+      lower.includes("fit") ||
+      lower.includes("another activity") ||
+      lower.includes("add activity")
+    ) {
+      if (!currentActivities.length) {
+        respond(
+          "There are no activities scheduled for the selected day yet."
+        );
+        return;
+      }
+
+      const lastActivity =
+        currentActivities[
+          currentActivities.length - 1
+        ];
+
+      const endTime =
+        lastActivity.end_time ||
+        lastActivity.end ||
+        "the last scheduled time";
+
+      respond(
+        `Your selected day currently has ${currentActivities.length} activities. The last scheduled activity ends at ${endTime}. I can check whether another activity fits after that.`
+      );
+
+      return;
+    }
+
+    if (
+      lower.includes("budget") ||
+      lower.includes("cost") ||
+      lower.includes("money")
+    ) {
+      const totalCost = allActivities.reduce(
+        (sum, activity) =>
+          sum + Number(activity.cost || 0),
+        0
+      );
+
+      respond(
+        `Your trip budget is ₹${Number(
+          trip?.budget || 0
+        ).toLocaleString("en-IN")}. Scheduled activities currently total ₹${totalCost.toLocaleString(
+          "en-IN"
+        )}.`
+      );
+
+      return;
+    }
+
+    if (
+      lower.includes("itinerary") ||
+      lower.includes("plan") ||
+      lower.includes("today")
+    ) {
+      if (!currentActivities.length) {
+        respond(
+          "There are no activities scheduled for the selected day."
+        );
+        return;
+      }
+
+      const names = currentActivities
+        .map((activity) => activity.name)
+        .join(", ");
+
+      respond(
+        `Your Day ${selectedDay} itinerary includes: ${names}.`
+      );
+
+      return;
+    }
+
+    respond(
+      "I can help with your itinerary, tomorrow morning, nearby activities, fitting another activity, and your trip budget."
     );
+  }
 
-    const answer = generateAnswer(cleanQuestion);
+  function handleSubmit(e) {
+    e.preventDefault();
 
-    setMessages((current) => [
-      ...current,
-      {
-        type: "ai",
-        text: answer,
-      },
-    ]);
+    if (!message.trim()) return;
 
-    setLoading(false);
-  };
-
-  const suggestions = [
-    "What should I do tomorrow morning?",
-    "What's near my hotel?",
-    "Can I fit another activity?",
-  ];
+    handleQuickQuestion(message.trim());
+  }
 
   return (
-    <div className="bg-slate-950 rounded-2xl p-6 text-white shadow-sm">
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
 
-      {/* Header */}
-      <div className="flex items-center gap-3">
-
-        <div className="w-11 h-11 rounded-xl bg-blue-600 flex items-center justify-center">
-          <Bot size={22} />
+      <div className="flex items-center gap-3 mb-5">
+        <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center">
+          <Bot size={21} />
         </div>
 
         <div>
-          <div className="flex items-center gap-2">
+          <h2 className="text-lg font-bold text-slate-900">
+            AI Assistant
+          </h2>
 
-            <h2 className="text-lg font-bold">
-              TravelPilot AI
-            </h2>
-
-            <span className="flex items-center gap-1 text-xs bg-blue-600/20 text-blue-300 px-2 py-1 rounded-full">
-              <Sparkles size={12} />
-              AI
-            </span>
-
-          </div>
-
-          <p className="text-sm text-slate-400">
-            Your intelligent trip assistant
+          <p className="text-sm text-slate-500">
+            Ask TravelPilot about your trip
           </p>
         </div>
-
       </div>
 
+      {/* Quick questions */}
+      <div className="flex flex-wrap gap-2 mb-5">
+        <button
+          onClick={() =>
+            handleQuickQuestion(
+              "What should I do tomorrow morning?"
+            )
+          }
+          className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm text-slate-700"
+        >
+          What should I do tomorrow morning?
+        </button>
 
-      {/* Description */}
-      <p className="mt-5 text-slate-300">
-        Ask me anything about your trip. I can help you
-        plan, modify, or replan your itinerary.
-      </p>
+        <button
+          onClick={() =>
+            handleQuickQuestion(
+              "What's near my hotel?"
+            )
+          }
+          className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm text-slate-700"
+        >
+          What's near my hotel?
+        </button>
 
+        <button
+          onClick={() =>
+            handleQuickQuestion(
+              "Can I fit another activity?"
+            )
+          }
+          className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm text-slate-700"
+        >
+          Can I fit another activity?
+        </button>
+      </div>
 
       {/* Conversation */}
       {messages.length > 0 && (
-        <div className="mt-5 space-y-3 max-h-80 overflow-y-auto">
-
-          {messages.map((message, index) => (
-
+        <div className="space-y-3 mb-5 max-h-80 overflow-y-auto">
+          {messages.map((item, index) => (
             <div
               key={index}
-              className={`flex gap-3 ${
-                message.type === "user"
+              className={`flex ${
+                item.type === "user"
                   ? "justify-end"
                   : "justify-start"
               }`}
             >
-
-              {message.type === "ai" && (
-                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
-                  <Bot size={16} />
-                </div>
-              )}
-
               <div
-                className={`max-w-[80%] px-4 py-3 rounded-xl text-sm ${
-                  message.type === "user"
+                className={`max-w-[80%] rounded-xl px-4 py-3 text-sm ${
+                  item.type === "user"
                     ? "bg-blue-600 text-white"
-                    : "bg-slate-800 text-slate-200"
+                    : "bg-slate-100 text-slate-700"
                 }`}
               >
-                {message.text}
+                {item.text}
               </div>
-
-              {message.type === "user" && (
-                <div className="w-8 h-8 rounded-lg bg-slate-700 flex items-center justify-center shrink-0">
-                  <User size={16} />
-                </div>
-              )}
-
             </div>
-
           ))}
-
-          {loading && (
-            <div className="flex items-center gap-2 text-sm text-slate-400">
-              <Bot size={16} />
-              TravelPilot is thinking...
-            </div>
-          )}
-
         </div>
       )}
 
-
       {/* Input */}
-      <div className="mt-5 flex gap-2">
-
+      <form
+        onSubmit={handleSubmit}
+        className="flex gap-2"
+      >
         <input
-          type="text"
-          value={question}
+          value={message}
           onChange={(e) =>
-            setQuestion(e.target.value)
+            setMessage(e.target.value)
           }
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              askQuestion();
-            }
-          }}
-          placeholder="Ask TravelPilot..."
-          className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-blue-500 text-white placeholder:text-slate-500"
+          placeholder="Ask about your trip..."
+          className="flex-1 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
         />
 
         <button
-          onClick={() => askQuestion()}
-          disabled={loading}
-          className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 transition px-4 rounded-xl"
+          type="submit"
+          className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-4"
         >
-          <Send size={19} />
+          <Send size={18} />
         </button>
-
-      </div>
-
-
-      {/* Suggested questions */}
-      <div className="flex flex-wrap gap-2 mt-4">
-
-        {suggestions.map((suggestion) => (
-
-          <button
-            key={suggestion}
-            onClick={() => askQuestion(suggestion)}
-            disabled={loading}
-            className="text-sm bg-slate-800 hover:bg-slate-700 disabled:opacity-50 px-3 py-2 rounded-lg transition"
-          >
-            {suggestion}
-          </button>
-
-        ))}
-
-      </div>
-
+      </form>
     </div>
   );
 }

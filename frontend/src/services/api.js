@@ -1,118 +1,81 @@
-const API_URL = "http://127.0.0.1:8000";
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  "http://127.0.0.1:8000";
 
+async function request(
+  endpoint,
+  options = {}
+) {
+  let response;
 
-export async function generateTripPlan(trip) {
-
-  const response = await fetch(
-    `${API_URL}/plan`,
-    {
-      method: "POST",
-
-      headers: {
-        "Content-Type": "application/json",
-      },
-
-      body: JSON.stringify({
-
-        destination:
-          trip.destination,
-
-        budget:
-          Number(trip.budget),
-
-        interests:
-          trip.interests,
-
-        start_date:
-          trip.startDate,
-
-        end_date:
-          trip.endDate,
-
-      }),
-    }
-  );
-
-
-  const data =
-    await response.json();
-
-
-  if (
-    !response.ok ||
-    data.error
-  ) {
-
-    throw new Error(
-      data.error ||
-      "Failed to generate trip plan"
+  try {
+    response = await fetch(
+      `${API_URL}${endpoint}`,
+      {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers || {}),
+        },
+      }
     );
-
+  } catch (error) {
+    throw new Error(
+      `Cannot connect to TravelPilot backend at ${API_URL}. Make sure FastAPI is running on port 8000.`
+    );
   }
 
+  let data;
+
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(
+      `Backend returned an invalid response (${response.status}).`
+    );
+  }
+
+  if (!response.ok || data.error) {
+    throw new Error(
+      data.error ||
+        `TravelPilot backend error (${response.status}).`
+    );
+  }
 
   return data;
-
 }
 
+export async function generateTripPlan(trip) {
+  return request("/plan", {
+    method: "POST",
+    body: JSON.stringify({
+      destination: trip.destination,
+      budget: Number(trip.budget),
+      interests: trip.interests || [],
+      start_date: trip.startDate,
+      end_date: trip.endDate,
+    }),
+  });
+}
 
 export async function replanTrip(
   trip,
-  unavailablePlaceIds
+  unavailablePlaceIds = []
 ) {
+  return request("/replan", {
+    method: "POST",
+    body: JSON.stringify({
+      destination: trip.destination,
+      budget: Number(trip.budget),
+      interests: trip.interests || [],
+      unavailable_place_ids:
+        unavailablePlaceIds,
+      start_date: trip.startDate,
+      end_date: trip.endDate,
+    }),
+  });
+}
 
-  const response = await fetch(
-    `${API_URL}/replan`,
-    {
-      method: "POST",
-
-      headers: {
-        "Content-Type":
-          "application/json",
-      },
-
-      body: JSON.stringify({
-
-        destination:
-          trip.destination,
-
-        budget:
-          Number(trip.budget),
-
-        interests:
-          trip.interests,
-
-        start_date:
-          trip.startDate,
-
-        end_date:
-          trip.endDate,
-
-        unavailable_place_ids:
-          unavailablePlaceIds,
-
-      }),
-    }
-  );
-
-
-  const data =
-    await response.json();
-
-
-  if (
-    !response.ok ||
-    data.error
-  ) {
-
-    throw new Error(
-      data.error ||
-      "Failed to replan trip"
-    );
-
-  }
-
-
-  return data;
-
+export async function checkBackendHealth() {
+  return request("/health");
 }
